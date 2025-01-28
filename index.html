@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>がん細胞の増殖を防ぐゲーム</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f7f9fc;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: row;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            margin-right: 20px;
+            width: 300px;
+            flex-shrink: 0;
+        }
+        .gameArea {
+            background-color: #fff;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 600px;
+            height: 400px;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .cell {
+            width: 50px;
+            height: 50px;
+            background-color: red;
+            border-radius: 50%;
+            position: absolute;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        .malignant-cell {
+            width: 50px;
+            height: 50px;
+            background-color: darkred;
+            border-radius: 50%;
+            position: absolute;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        .status {
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        .treatment-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .treatment-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #e0e0e0;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .treatment-button.enabled {
+            background-color: lightgreen;
+        }
+        .health-bar, .gauge-bar {
+            width: 100%;
+            background-color: #ccc;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+        .health, .gauge {
+            height: 20px;
+            border-radius: 5px;
+            line-height: 20px;
+            color: white;
+            text-align: center;
+        }
+        .health {
+            background-color: #4caf50;
+        }
+        .gauge {
+            background-color: #2196f3;
+        }
+        .game-over {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            border-radius: 10px;
+        }
+        .game-over button {
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+            background-color: #ff5722;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        .game-over button:hover {
+            background-color: #e64a19;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>がん細胞の増殖を防ぐゲーム</h1>
+        <p>がん細胞をクリックして取り除き、増殖を防ぎましょう。</p>
+        <div class="status">スコア: <span id="score">0</span></div>
+        <div class="health-bar">
+            体力: <div class="health" id="health">100%</div>
+        </div>
+        <div class="gauge-bar">
+            ゲージ: <div class="gauge" id="gauge">0%</div>
+        </div>
+        <button onclick="startGame()">ゲーム開始</button>
+    </div>
+    <div class="gameArea" id="gameArea">
+        <div class="treatment-buttons">
+            <button class="treatment-button" id="foodButton" onclick="useTreatment('健康食品', 3, 5)">健康食品</button>
+            <button class="treatment-button" id="chemoButton" onclick="useTreatment('抗がん剤治療', 10, -10)">抗がん剤治療</button>
+            <button class="treatment-button" id="radiationButton" onclick="useTreatment('放射線治療', Infinity, -30)">放射線治療</button>
+        </div>
+        <div class="game-over" id="gameOver">
+            <div>ゲームオーバー！</div>
+            <div>スコア: <span id="finalScore">0</span></div>
+            <button onclick="restartGame()">再スタート</button>
+        </div>
+    </div>
+
+    <!-- BGMの音声要素を追加 -->
+    <audio id="bgm" src="music.mp3" loop></audio>
+
+    <script>
+        let score = 0;
+        let gauge = 0;
+        let health = 100;
+        let gameInterval;
+        let difficultyInterval;
+        let healthInterval;
+        let spawnRate = 1000; // 初期出現速度(ミリ秒)
+        const gameArea = document.getElementById('gameArea');
+        const healthElement = document.getElementById('health');
+        const gaugeElement = document.getElementById('gauge');
+        const treatmentButtons = document.querySelectorAll('.treatment-button');
+        const gameOverScreen = document.getElementById('gameOver');
+        const finalScoreElement = document.getElementById('finalScore');
+        const bgm = document.getElementById('bgm'); // BGMの要素
+
+        // 初期状態でゲームオーバー画面を非表示に設定
+        gameOverScreen.style.display = 'none';
+
+        function startGame() {
+            score = 0;
+            gauge = 0;
+            health = 100;
+            spawnRate = 1000; // ゲーム開始時にリセット
+            document.getElementById('score').innerText = score;
+            healthElement.style.width = health + '%';
+            healthElement.innerText = health + '%';
+            gaugeElement.style.width = gauge + '%';
+            gaugeElement.innerText = gauge + '%';
+            gameArea.classList.remove('dimmed'); // ゲームエリアの暗転を解除
+            gameOverScreen.style.display = 'none'; // ゲームオーバー画面を非表示
+            clearIntervals(); // 既存のIntervalsをクリア
+            gameInterval = setInterval(spawnCell, spawnRate);
+            difficultyInterval = setInterval(increaseDifficulty, 5000);
+            healthInterval = setInterval(updateHealth, 1000);
+            updateTreatmentButtons();
+            bgm.play(); // BGMを再生
+        }
+
+        function spawnCell() {
+            const cellType = Math.random() < 0.2 ? 'malignant-cell' : 'cell';
+            const cell = document.createElement('div');
+            cell.className = cellType;
+            cell.style.top = Math.random() * (gameArea.clientHeight - 50) + 'px';
+            cell.style.left = Math.random() * (gameArea.clientWidth - 50) + 'px';
+
+            if (cellType === 'malignant-cell') {
+                cell.dataset.clicks = 0;
+                cell.onclick = function() {
+                    cell.dataset.clicks++;
+                    if (cell.dataset.clicks >= 2) {
+                        removeCell(cell);
+                    }
+                };
+            } else {
+                cell.onclick = function() {
+                    removeCell(cell);
+                };
+            }
+            gameArea.appendChild(cell);
+        }
+
+        function removeCell(cell) {
+            score++;
+            document.getElementById('score').innerText = score;
+            gauge += 10;
+            if (gauge > 100) gauge = 100;
+            gaugeElement.style.width = gauge + '%';
+            gaugeElement.innerText = gauge + '%';
+            gameArea.removeChild(cell);
+            updateTreatmentButtons();
+        }
+
+        function increaseDifficulty() {
+            spawnRate *= 0.98; // 徐々に増殖速度を速くする
+            if (spawnRate < 200) spawnRate = 200; // 最小値を設定
+            clearInterval(gameInterval);
+            gameInterval = setInterval(spawnCell, spawnRate);
+        }
+
+        function updateHealth() {
+            const cells = document.querySelectorAll('.cell, .malignant-cell');
+            health -= cells.length; // がん細胞の数に応じて体力を減らす
+            if (health <= 0) {
+                health = 0;
+                gameOver();
+            }
+            healthElement.style.width = health + '%';
+            healthElement.innerText = health + '%';
+        }
+
+        function updateTreatmentButtons() {
+            const foodButton = document.getElementById('foodButton');
+            const chemoButton = document.getElementById('chemoButton');
+            const radiationButton = document.getElementById('radiationButton');
+
+            if (gauge >= 30) {
+                foodButton.classList.add('enabled');
+                foodButton.disabled = false;
+            } else {
+                foodButton.classList.remove('enabled');
+                foodButton.disabled = true;
+            }
+
+            if (gauge >= 70) {
+                chemoButton.classList.add('enabled');
+                chemoButton.disabled = false;
+            } else {
+                chemoButton.classList.remove('enabled');
+                chemoButton.disabled = true;
+            }
+
+            if (gauge >= 100) {
+                radiationButton.classList.add('enabled');
+                radiationButton.disabled = false;
+            } else {
+                radiationButton.classList.remove('enabled');
+                radiationButton.disabled = true;
+            }
+        }
+
+        function useTreatment(treatmentType, destructionCount, healthImpact) {
+            if ((treatmentType === '放射線治療' && gauge < 100) ||
+                (treatmentType === '抗がん剤治療' && gauge < 70) ||
+                (treatmentType === '健康食品' && gauge < 30)) {
+                return; // ゲージが足りない場合は何もしない
+            }
+
+            let cells;
+            if (destructionCount === Infinity) {
+                cells = document.querySelectorAll('.cell, .malignant-cell');
+            } else {
+                cells = Array.from(document.querySelectorAll('.cell, .malignant-cell')).slice(0, destructionCount);
+            }
+
+            cells.forEach(cell => {
+                gameArea.removeChild(cell);
+            });
+
+            if (treatmentType === '健康食品') {
+                health += 5;
+                if (health > 100) health = 100;
+                gauge -= 30;
+            } else if (treatmentType === '抗がん剤治療') {
+                health += healthImpact;
+                gauge -= 70;
+            } else if (treatmentType === '放射線治療') {
+                health += healthImpact;
+                gauge -= 100;
+            }
+
+            if (gauge < 0) gauge = 0;
+
+            gaugeElement.style.width = gauge + '%';
+            gaugeElement.innerText = gauge + '%';
+            healthElement.style.width = health + '%';
+            healthElement.innerText = health + '%';
+
+            updateTreatmentButtons();
+        }
+
+        function gameOver() {
+            clearIntervals();
+            finalScoreElement.innerText = score;
+            gameOverScreen.style.display = 'flex';
+            bgm.pause(); // BGMを停止
+            bgm.currentTime = 0; // 再生位置をリセット
+        }
+
+        function restartGame() {
+            startGame();
+        }
+
+        function clearIntervals() {
+            clearInterval(gameInterval);
+            clearInterval(difficultyInterval);
+            clearInterval(healthInterval);
+        }
+
+        // ユーザーがページを離れたときにBGMを停止
+        window.addEventListener('blur', () => {
+            bgm.pause();
+        });
+
+        // ユーザーがページに戻ったときにBGMを再開
+        window.addEventListener('focus', () => {
+            if (health > 0 && !bgm.paused) {
+                bgm.play();
+            }
+        });
+    </script>
+</body>
+</html>
